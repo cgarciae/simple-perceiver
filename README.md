@@ -1,1 +1,3 @@
-# simple-perceiver
+# Simple ViT
+
+![Vision Transformer](vit.png)
