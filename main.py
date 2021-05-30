@@ -16,15 +16,6 @@ import einops
 
 import elegy
 
-
-def fourier_encoder(x: jnp.ndarray, max_freq: float, num_bands: int):
-    scales = jnp.logscale(0.0, math.log(max_freq / 2, 2), num=num_bands, base=2)
-    # TODO: review shapes
-    w = x * scales * math.pi
-    w = jnp.concatenate([jnp.sin(w), jnp.cos(w)], axis=-1)
-    return jnp.concatenate([w, x], axis=-1)  # TODO: review dim order
-
-
 class Perceiver(elegy.Module):
     """Standar Perceiver implemented in live code."""
 
@@ -159,6 +150,42 @@ class FeedForward(elegy.Module):
         return x
 
 
+class FourierFeatureEncoding(elegy.Module):
+    def __init__(self, max_freq, num_bands):
+        super().__init__()
+
+        self.max_freq = max_freq
+        self.num_bands = num_bands
+
+    def call(self, input_tensor):
+        batch, *axis, _ = input_tensor.shape
+
+        position = jnp.stack(
+            jnp.meshgrid(*[
+                jnp.linspace(-1, 1, size) for size in axis
+            ], indexing='ij'), 
+            axis=-1
+        )[..., None]
+
+        scales = jnp.logspace(
+            0.0, jnp.log2(self.max_freq / 2), num=self.num_bands, base=2
+        )
+
+        coef = position * scales * jnp.pi
+        encoded_position = jax.vmap(
+            lambda x: jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
+        )(coef)
+        encoded_position = jnp.concatenate([encoded_position, position], axis=-1)
+
+        encoded_position = rearrange(
+            encoded_position, '... dims bands -> ... (dims bands)'
+        )
+        encoded_position = repeat(
+            encoded_position, '... -> batch ...', batch = batch
+        )
+
+        return jnp.concatenate((input_tensor, enc_pos))
+
 def main(
     debug: bool = False,
     eager: bool = False,
@@ -206,7 +233,7 @@ def main(
             elegy.losses.SparseCategoricalCrossentropy(from_logits=True),
             # elegy.regularizers.GlobalL2(l=1e-4),
         ],
-        metrics=elegy.metrics.SparseCategoricalAccuracy(),
+        metrics=elegy.metrics.SparseCategoricxalAccuracy(),
         optimizer=optax.adamw(3e-5),
         run_eagerly=eager,
     )
