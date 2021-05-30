@@ -28,6 +28,8 @@ class Perceiver(elegy.Module):
         dropout: float,
         n_latents: int,
         output_dim: int,
+        max_freq: float = 10.,
+        num_bands: int = 6,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -38,9 +40,10 @@ class Perceiver(elegy.Module):
         self.dropout = dropout
         self.n_latents = n_latents
         self.output_dim = output_dim
+        self.num_bands = num_bands
 
     def call(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = FourierFeatureEncoding(10, 6)(x[..., None])
+        x = FourierFeatureEncoding(self.max_freq, self.num_bands)(x[..., None])
         x = einops.rearrange(x, 'b ... d -> b (...) d')
 
         batch_size = x.shape[0]
