@@ -43,7 +43,7 @@ class Perceiver(elegy.Module):
         self.num_bands = num_bands
 
     def call(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = FourierFeatureEncoding(self.max_freq, self.num_bands)(x[..., None])
+        x = FourierFeatureEncoding(self.max_freq, self.num_bands)(x)
         x = einops.rearrange(x, 'b ... d -> b (...) d')
 
         batch_size = x.shape[0]
@@ -191,6 +191,8 @@ def main(
     dropout: float = 0.0,
     n_latents: int = 128,
     output_dim: int = 10,
+    max_freq: float = 10.,
+    num_bands: int = 6,
 ):
 
     if debug:
@@ -228,6 +230,9 @@ def main(
         optimizer=optax.adamw(3e-5),
         run_eagerly=eager,
     )
+
+    X_train = X_train[..., None]
+    X_test = X_test[..., None]
 
     model.init(X_train[:64], y_train[:64])
 
