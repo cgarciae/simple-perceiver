@@ -32,6 +32,7 @@ class Perceiver(elegy.Module):
         self,
         size: int,
         num_layers: int,
+        reps_per_layer: int,
         num_heads: int,
         dropout: float,
         n_latents: int,
@@ -41,6 +42,7 @@ class Perceiver(elegy.Module):
         super().__init__(**kwargs)
         self.size = size
         self.num_layers = num_layers
+        self.reps_per_layer = reps_per_layer
         self.num_heads = num_heads
         self.dropout = dropout
         self.n_latents = n_latents
@@ -48,7 +50,11 @@ class Perceiver(elegy.Module):
 
     def call(self, x: jnp.ndarray) -> jnp.ndarray:
 
-        # x = einops.rearrange(x, "batch h w -> batch (h w) 1")
+        # patch embeddings
+        # x = einops.rearrange(
+        #     x, "batch (h1 h2) (w1 w2) -> batch (h1 w1) (h2 w2)", h2=7, w2=7
+        # )
+        x = einops.rearrange(x, "batch h w -> batch (h w) 1")
         x = elegy.nn.Linear(self.size)(x)
 
         batch_size = x.shape[0]
@@ -65,12 +71,13 @@ class Perceiver(elegy.Module):
         latent = self.get_embeddings("latent", batch_size, (self.n_latents, n_channels))
 
         for _ in range(self.num_layers):
-            latent += self.norm(self.cross_attn(latent, x))
-            latent += self.norm(self.mlp(latent))
-            latent += self.norm(self.self_attn(latent))
-            latent += self.norm(self.mlp(latent))
+            block = PerceiverBlock(self.size, self.num_heads, self.dropout)
+
+            for _ in range(self.reps_per_layer):
+                latent = block(latent, x)
 
         # get predict output token
+        # latent = latent[:, 0]
         latent = jnp.mean(latent, axis=1)
 
         # apply predict head
@@ -93,6 +100,28 @@ class Perceiver(elegy.Module):
         )
 
         return embeddings
+
+
+class PerceiverBlock(elegy.Module):
+    def __init__(
+        self,
+        size: int,
+        num_heads: int,
+        dropout: float,
+    ):
+        super().__init__()
+        self.size = size
+        self.num_heads = num_heads
+        self.dropout = dropout
+
+    def call(self, latent, x):
+
+        latent += self.norm(self.cross_attn(latent, x))
+        latent += self.norm(self.mlp(latent))
+        latent += self.norm(self.self_attn(latent))
+        latent += self.norm(self.mlp(latent))
+
+        return latent
 
     def cross_attn(self, query: jnp.ndarray, key: jnp.ndarray) -> jnp.ndarray:
         return elegy.nn.MultiHeadAttention(
@@ -138,7 +167,8 @@ def main(
     batch_size: int = 64,
     epochs: int = 100,
     size: int = 32,
-    num_layers: int = 3,
+    num_layers: int = 2,
+    reps_per_layer: int = 3,
     num_heads: int = 8,
     dropout: float = 0.0,
     n_latents: int = 128,
@@ -166,6 +196,7 @@ def main(
         module=Perceiver(
             size=size,
             num_layers=num_layers,
+            reps_per_layer=reps_per_layer,
             num_heads=num_heads,
             dropout=dropout,
             n_latents=n_latents,
@@ -176,7 +207,7 @@ def main(
             # elegy.regularizers.GlobalL2(l=1e-4),
         ],
         metrics=elegy.metrics.SparseCategoricalAccuracy(),
-        optimizer=optax.adamw(1e-3),
+        optimizer=optax.adamw(3e-5),
         run_eagerly=eager,
     )
 
