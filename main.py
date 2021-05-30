@@ -16,6 +16,7 @@ import einops
 
 import elegy
 
+
 class Perceiver(elegy.Module):
     """Standar Perceiver implemented in live code."""
 
@@ -28,7 +29,7 @@ class Perceiver(elegy.Module):
         dropout: float,
         n_latents: int,
         output_dim: int,
-        max_freq: float = 10.,
+        max_freq: float = 10.0,
         num_bands: int = 6,
         **kwargs,
     ):
@@ -45,7 +46,7 @@ class Perceiver(elegy.Module):
 
     def call(self, x: jnp.ndarray) -> jnp.ndarray:
         x = FourierFeatureEncoding(self.max_freq, self.num_bands)(x)
-        x = einops.rearrange(x, 'b ... d -> b (...) d')
+        x = einops.rearrange(x, "b ... d -> b (...) d")
 
         batch_size = x.shape[0]
         n_channels = x.shape[-1]
@@ -153,10 +154,8 @@ class FourierFeatureEncoding(elegy.Module):
         batch, *axis, _ = input_tensor.shape
 
         position = jnp.stack(
-            jnp.meshgrid(*[
-                jnp.linspace(-1, 1, size) for size in axis
-            ], indexing='ij'), 
-            axis=-1
+            jnp.meshgrid(*[jnp.linspace(-1, 1, size) for size in axis], indexing="ij"),
+            axis=-1,
         )[..., None]
 
         scales = jnp.logspace(
@@ -170,13 +169,14 @@ class FourierFeatureEncoding(elegy.Module):
         encoded_position = jnp.concatenate([encoded_position, position], axis=-1)
 
         encoded_position = einops.rearrange(
-            encoded_position, '... dims bands -> ... (dims bands)'
+            encoded_position, "... dims bands -> ... (dims bands)"
         )
         encoded_position = einops.repeat(
-            encoded_position, '... -> batch ...', batch = batch
+            encoded_position, "... -> batch ...", batch=batch
         )
 
         return jnp.concatenate((input_tensor, encoded_position), axis=-1)
+
 
 def main(
     debug: bool = False,
@@ -192,7 +192,7 @@ def main(
     dropout: float = 0.0,
     n_latents: int = 128,
     output_dim: int = 10,
-    max_freq: float = 10.,
+    max_freq: float = 10.0,
     num_bands: int = 6,
 ):
 
@@ -207,6 +207,9 @@ def main(
     logdir = os.path.join(logdir, current_time)
 
     X_train, y_train, X_test, y_test = dataget.image.mnist(global_cache=True).get()
+
+    X_train = X_train[..., None]
+    X_test = X_test[..., None]
 
     print("X_train:", X_train.shape, X_train.dtype)
     print("y_train:", y_train.shape, y_train.dtype)
@@ -227,13 +230,10 @@ def main(
             elegy.losses.SparseCategoricalCrossentropy(from_logits=True),
             # elegy.regularizers.GlobalL2(l=1e-4),
         ],
-        metrics=elegy.metrics.SparseCategoricxalAccuracy(),
+        metrics=elegy.metrics.SparseCategoricalAccuracy(),
         optimizer=optax.adamw(3e-5),
         run_eagerly=eager,
     )
-
-    X_train = X_train[..., None]
-    X_test = X_test[..., None]
 
     model.init(X_train[:64], y_train[:64])
 
