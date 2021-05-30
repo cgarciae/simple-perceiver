@@ -40,23 +40,11 @@ class Perceiver(elegy.Module):
         self.output_dim = output_dim
 
     def call(self, x: jnp.ndarray) -> jnp.ndarray:
-
-        # patch embeddings
-        # x = einops.rearrange(
-        #     x, "batch (h1 h2) (w1 w2) -> batch (h1 w1) (h2 w2)", h2=7, w2=7
-        # )
-        x = einops.rearrange(x, "batch h w -> batch (h w) 1")
-        x = elegy.nn.Linear(self.size)(x)
+        x = FourierFeatureEncoding(10, 6)(x[..., None])
+        x = einops.rearrange(x, 'b ... d -> b (...) d')
 
         batch_size = x.shape[0]
         n_channels = x.shape[-1]
-
-        # X: (B, N, D)
-        # create positional embeddings
-        positional_embeddings = self.get_embeddings(
-            "positional", batch_size, x.shape[1:]
-        )
-        x += positional_embeddings
 
         # create latent queries
         latent = self.get_embeddings("latent", batch_size, (self.n_latents, n_channels))
@@ -177,14 +165,14 @@ class FourierFeatureEncoding(elegy.Module):
         )(coef)
         encoded_position = jnp.concatenate([encoded_position, position], axis=-1)
 
-        encoded_position = rearrange(
+        encoded_position = einops.rearrange(
             encoded_position, '... dims bands -> ... (dims bands)'
         )
-        encoded_position = repeat(
+        encoded_position = einops.repeat(
             encoded_position, '... -> batch ...', batch = batch
         )
 
-        return jnp.concatenate((input_tensor, enc_pos))
+        return jnp.concatenate((input_tensor, encoded_position), axis=-1)
 
 def main(
     debug: bool = False,
