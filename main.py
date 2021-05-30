@@ -40,6 +40,7 @@ class Perceiver(elegy.Module):
         self.dropout = dropout
         self.n_latents = n_latents
         self.output_dim = output_dim
+        self.max_freq = max_freq
         self.num_bands = num_bands
 
     def call(self, x: jnp.ndarray) -> jnp.ndarray:
