@@ -30,7 +30,7 @@ class Perceiver(elegy.Module):
         n_latents: int,
         output_dim: int,
         max_freq: float = 10.0,
-        num_bands: int = 6,
+        num_bands: int = 8,
         **kwargs,
     ):
         super().__init__(**kwargs)
