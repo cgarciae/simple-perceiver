@@ -17,14 +17,6 @@ import einops
 import elegy
 
 
-def fourier_encoder(x: jnp.ndarray, max_freq: float, num_bands: int):
-    scales = jnp.logscale(0.0, math.log(max_freq / 2, 2), num=num_bands, base=2)
-    # TODO: review shapes
-    w = x * scales * math.pi
-    w = jnp.concatenate([jnp.sin(w), jnp.cos(w)], axis=-1)
-    return jnp.concatenate([w, x], axis=-1)  # TODO: review dim order
-
-
 class Perceiver(elegy.Module):
     """Standar Perceiver implemented in live code."""
 
@@ -37,6 +29,8 @@ class Perceiver(elegy.Module):
         dropout: float,
         n_latents: int,
         output_dim: int,
+        max_freq: float = 10.0,
+        num_bands: int = 8,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -47,25 +41,15 @@ class Perceiver(elegy.Module):
         self.dropout = dropout
         self.n_latents = n_latents
         self.output_dim = output_dim
+        self.max_freq = max_freq
+        self.num_bands = num_bands
 
     def call(self, x: jnp.ndarray) -> jnp.ndarray:
-
-        # patch embeddings
-        # x = einops.rearrange(
-        #     x, "batch (h1 h2) (w1 w2) -> batch (h1 w1) (h2 w2)", h2=7, w2=7
-        # )
-        x = einops.rearrange(x, "batch h w -> batch (h w) 1")
-        x = elegy.nn.Linear(self.size)(x)
+        x = FourierFeatureEncoding(self.max_freq, self.num_bands)(x)
+        x = einops.rearrange(x, "b ... d -> b (...) d")
 
         batch_size = x.shape[0]
         n_channels = x.shape[-1]
-
-        # X: (B, N, D)
-        # create positional embeddings
-        positional_embeddings = self.get_embeddings(
-            "positional", batch_size, x.shape[1:]
-        )
-        x += positional_embeddings
 
         # create latent queries
         latent = self.get_embeddings("latent", batch_size, (self.n_latents, n_channels))
@@ -159,6 +143,41 @@ class FeedForward(elegy.Module):
         return x
 
 
+class FourierFeatureEncoding(elegy.Module):
+    def __init__(self, max_freq, num_bands):
+        super().__init__()
+
+        self.max_freq = max_freq
+        self.num_bands = num_bands
+
+    def call(self, input_tensor):
+        batch, *axis, _ = input_tensor.shape
+
+        position = jnp.stack(
+            jnp.meshgrid(*[jnp.linspace(-1, 1, size) for size in axis], indexing="ij"),
+            axis=-1,
+        )[..., None]
+
+        scales = jnp.logspace(
+            0.0, jnp.log2(self.max_freq / 2), num=self.num_bands, base=2
+        )
+
+        coef = position * scales * jnp.pi
+        encoded_position = jax.vmap(
+            lambda x: jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
+        )(coef)
+        encoded_position = jnp.concatenate([encoded_position, position], axis=-1)
+
+        encoded_position = einops.rearrange(
+            encoded_position, "... dims bands -> ... (dims bands)"
+        )
+        encoded_position = einops.repeat(
+            encoded_position, "... -> batch ...", batch=batch
+        )
+
+        return jnp.concatenate((input_tensor, encoded_position), axis=-1)
+
+
 def main(
     debug: bool = False,
     eager: bool = False,
@@ -173,6 +192,8 @@ def main(
     dropout: float = 0.0,
     n_latents: int = 128,
     output_dim: int = 10,
+    max_freq: float = 10.0,
+    num_bands: int = 6,
 ):
 
     if debug:
@@ -186,6 +207,9 @@ def main(
     logdir = os.path.join(logdir, current_time)
 
     X_train, y_train, X_test, y_test = dataget.image.mnist(global_cache=True).get()
+
+    X_train = X_train[..., None]
+    X_test = X_test[..., None]
 
     print("X_train:", X_train.shape, X_train.dtype)
     print("y_train:", y_train.shape, y_train.dtype)
