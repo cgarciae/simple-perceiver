@@ -150,32 +150,32 @@ class FourierFeatureEncoding(elegy.Module):
         self.max_freq = max_freq
         self.num_bands = num_bands
 
-    def call(self, input_tensor):
-        batch, *axis, _ = input_tensor.shape
+    def call(self, x):
+        return jax.vmap(self.call_sample)(x)
 
-        position = jnp.stack(
+    def call_sample(self, x):
+        axis = x.shape[:-1]
+
+        coordinates = jnp.stack(
             jnp.meshgrid(*[jnp.linspace(-1, 1, size) for size in axis], indexing="ij"),
             axis=-1,
         )[..., None]
-
-        scales = jnp.logspace(
+        frequencies = jnp.logspace(
             0.0, jnp.log2(self.max_freq / 2), num=self.num_bands, base=2
         )
+        coefficients = coordinates * frequencies * jnp.pi
 
-        coef = position * scales * jnp.pi
-        encoded_position = jax.vmap(
-            lambda x: jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
-        )(coef)
-        encoded_position = jnp.concatenate([encoded_position, position], axis=-1)
-
-        encoded_position = einops.rearrange(
-            encoded_position, "... dims bands -> ... (dims bands)"
+        positional_embeddings = jnp.concatenate(
+            [jnp.sin(coefficients), jnp.cos(coefficients)], axis=-1
         )
-        encoded_position = einops.repeat(
-            encoded_position, "... -> batch ...", batch=batch
+        positional_embeddings = jnp.concatenate(
+            [positional_embeddings, coordinates], axis=-1
+        )
+        positional_embeddings = einops.rearrange(
+            positional_embeddings, "... dims bands -> ... (dims bands)"
         )
 
-        return jnp.concatenate((input_tensor, encoded_position), axis=-1)
+        return jnp.concatenate((x, positional_embeddings), axis=-1)
 
 
 def main(
